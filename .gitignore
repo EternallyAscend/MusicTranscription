@@ -2,3 +2,5 @@
 *.exe
 *.midi
 *.wav
+
+*.pyc

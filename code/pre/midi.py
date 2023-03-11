@@ -6,6 +6,8 @@ import numpy as np
 import note_seq
 import librosa
 
+import eventCodec
+
 # note_on   音符开始
 # note_off  音符终止
 # note      音符音高
@@ -46,4 +48,8 @@ def read_MIDI(absolute_path):
     return midi
 
 def splite_MIDI_into_pieces():
+    pass
+
+
+if "__main__" == __name__:
     pass
