@@ -4,8 +4,7 @@ import note_seq
 import numpy as np
 import librosa
 
-SAMPLE_RATE = 44100
-TARGET_RATE = 8000 # 16000
+from config import Consts
 
 def read_wave(absolute_path, sample_rate):
     '''文件读取'''
@@ -63,12 +62,18 @@ def wave_audio_transcribe():
     pass
 
 if "__main__" == __name__:
-    audio = read_wave("../data/test6.wav", SAMPLE_RATE)
+    audio = read_wave("../data/test6.wav", Consts
+.SAMPLE_RATE)
     print(type(audio), len(audio))
     print(audio)
     print()
-    resample_audio = resample_wave("../data/test6.wav", SAMPLE_RATE, TARGET_RATE)
-    fragments = splite_wave_into_pieces(audio, SAMPLE_RATE, gap=2)
-    fft_fragments = transfer_wave_fragments(fragments, SAMPLE_RATE, n_fft=512)
+    resample_audio = resample_wave("../data/test6.wav", Consts
+.SAMPLE_RATE, Consts
+.TARGET_RATE)
+    fragments = splite_wave_into_pieces(audio, Consts
+.SAMPLE_RATE, gap=2)
+    fft_fragments = transfer_wave_fragments(fragments, Consts
+.SAMPLE_RATE, n_fft=512)
     print(len(fft_fragments), len(fft_fragments[0]), fft_fragments[0])
-    note_seq.play_sequence(resample_audio, sample_rate=SAMPLE_RATE, colab_ephemeral=True)
+    note_seq.play_sequence(resample_audio, sample_rate=Consts
+.SAMPLE_RATE, colab_ephemeral=True)

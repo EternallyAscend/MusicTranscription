@@ -6,6 +6,7 @@ import numpy as np
 import note_seq
 import librosa
 
+from config import Consts
 import eventCodec
 
 # note_on   音符开始
@@ -14,9 +15,6 @@ import eventCodec
 # velocity  音量 0-127
 # time      一拍480tick
 # tempo     乐曲速度
-NOTE_ON = "note_on"
-NOTE_OFF = "note_off"
-SYSEX = "sysex"
 
 def cal_tempo_to_bpm(tempo):
     return 60000000 / tempo
@@ -39,8 +37,8 @@ def read_MIDI(absolute_path):
             # print(i, message)
             if message.is_meta:
                 print(message)
-            if SYSEX is message.type:
-                print(SYSEX, message)
+            if Consts.SYSEX is message.type:
+                print(Consts.SYSEX, message)
             # if NOTE_ON is message["type"]:
             #     pass
             # if NOTE_OFF is message["type"]:
