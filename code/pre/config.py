@@ -65,6 +65,10 @@ class Consts:
     # Split audio frame sequences into this length before the cache placeholder.
     MAX_NUM_CACHED_FRAMES = 2000
 
+
+    DEFAULT_AUDIO_SECONDS = 30.0
+    DEFAULT_PIANOROLL_FRAMES_PER_SECOND = 15
+
     MAESTROV1_CONFIG = DatasetConfig(
     name='maestrov1',
     paths={
