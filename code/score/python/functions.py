@@ -1,7 +1,18 @@
+import enum
 import math
 # import lxml
 from lxml import etree
 
+class Criteria(enum.Enum):
+    Speed = "speed"
+    Displacement = "displacement"
+    Chord = "chord"
+    Harmony = "harmony"
+    Rhythm = "rhythm"
+    Nbpages = "nbpages"
+    Tonality = "tonality"
+
+# pitch2int 将音符音高转换为数值
 def pitch2int(pitch, note_octave, alter):
     pitch_value = 1
     if "A" == pitch:
@@ -36,12 +47,13 @@ def pitch2int(pitch, note_octave, alter):
         pitch_value += 48 # 4*12
     return pitch_value
 
-
+# semitone2octave 将半音间距转换为八度艰巨
 def semitone2octave(semitone_num):
     nb_octaves = math.floor(semitone_num/12)
     reste = semitone_num % 12
     return [nb_octaves, reste]
 
+# at_same_time 检查同时按下的音符数
 def at_same_time(note):
     result = []
     measure_nodes = note.xpath('parent::*')
@@ -72,6 +84,7 @@ def at_same_time(note):
             result.append(notes_timecodes[i][0])
     return result
 
+# get_note 返回一个音符
 def get_note(xml, mes, n, staff):
     the_measure = xml.xpath(f"//measure[@number={mes}]")
     the_notes = the_measure[0].xpath(f"./note[staff={staff} and not(rest)]")
@@ -80,15 +93,18 @@ def get_note(xml, mes, n, staff):
     else:
         return None
 
+# get_measure 返回元素的父元素
 def get_measure(xml, note):
     measure_nodes = note.xpath("parent::*")
     return measure_nodes[0]
 
+# get_measure_number 返回元素的所在小节
 def get_measure_number(xml, note):
     the_measure = get_measure(xml, note)
     measure_attributes = the_measure.attributes()
     return measure_attributes["number"]
 
+# get_note_pos_in_mes 获取元素在五线谱上的位置
 def get_note_pos_in_mes(xml, note):
     staff = note.staff
     the_measure = get_measure(xml, note)
@@ -105,6 +121,7 @@ def get_note_pos_in_mes(xml, note):
     else:
         return None
 
+# get_previous_note_element 返回上一个音符，如果不存在则返回当前元素
 def get_previous_note_element(xml, note):
     previous_note_prov = note
     pos = get_note_pos_in_mes(xml, note)
@@ -131,12 +148,127 @@ def get_previous_note_element(xml, note):
                 previous_note_prov = the_notes_prov[pos-2]
     return previous_note_prov
 
+# evaluate_difficulty 评估难度
+def evaluate_difficulty(criteria, value, valueLH):
+    result = 0
+    resultLH = 0
+    if Criteria.Speed == criteria:
+        if value > 80:
+            return 4
+        elif value > 50:
+            return 3
+        elif value > 20:
+            return 2
+        else:
+        # elif value > 10:
+            return 1
+    elif Criteria.Displacement == criteria:
+        if value > 20:
+            result = 4
+        elif value > 10:
+            result = 3
+        elif value > 5:
+            result = 2
+        else:
+            result = 1
+        if valueLH > 55:
+            resultLH = 4
+        elif valueLH > 20:
+            resultLH = 3
+        elif valueLH > 10:
+            resultLH = 2
+        else:
+            resultLH = 1
+        if 2 == result:
+            if 2 == resultLH:
+                return 3
+        if 3 == result:
+            if 3 == resultLH:
+                return 4
+        return max(result, resultLH)
+    elif Criteria.Chord == criteria:
+        if value > 60:
+            result = 4
+        elif value > 30:
+            result = 3
+        elif value > 10:
+            result = 2
+        else:
+            result = 1
+        if valueLH > 60:
+            resultLH = 4
+        elif valueLH > 30:
+            resultLH = 3
+        elif valueLH > 10:
+            resultLH = 2
+        else:
+            resultLH = 1
+        if 2 == result:
+            if 2 == resultLH:
+                return 3
+        if 3 == result:
+            if 3 == resultLH:
+                return 4
+        return max(result, resultLH)
+    elif Criteria.Harmony == criteria:
+        if value > 30:
+            result = 4
+        elif value > 20:
+            result = 3
+        elif value > 5:
+            result = 2
+        else:
+            result = 1
+        if valueLH > 30:
+            resultLH = 4
+        elif valueLH > 20:
+            resultLH = 3
+        elif valueLH > 5:
+            resultLH = 2
+        else:
+            resultLH = 1
+        if 2 == result:
+            if 2 == resultLH:
+                return 3
+        if 3 == result:
+            if 3 == resultLH:
+                return 4
+        return max(result, resultLH)
+    elif Criteria.Rhythm == criteria:
+        if value > 60:
+            return 4
+        elif value > 20:
+            return 3
+        elif value > 0:
+            return 2
+        else:
+            return 1
+    elif Criteria.Nbpages == criteria:
+        if value > 6:
+            return 4
+        elif value > 4:
+            return 3
+        elif value > 2:
+            return 2
+        else:
+            return 1
+    elif Criteria.Tonality == criteria:
+        if value > 5:
+            return 4
+        elif value > 3:
+            return 3
+        elif value > 1:
+            return 2
+        else:
+            return 1
+        
+
 def read_xml(path):
     data = None
     with open(path) as f:
         data = f.read()
-    print(type(data))
+    # print(type(data)) # str
     return etree.XML(data)
 
 if "__main__" == __name__:
-    read_xml("./demo.xml")
+    xml = read_xml("./demo.xml")
