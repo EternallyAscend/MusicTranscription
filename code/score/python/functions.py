@@ -1,5 +1,6 @@
 import enum
 import math
+from sys import meta_path
 # import lxml
 from lxml import etree
 from numpy import array_split
@@ -79,7 +80,7 @@ def at_same_time(note):
             my_note_timecode = current_timecode
     for i in len(notes_timecodes):
         tied = notes_timecodes[i][0].xpath("./notations/tied")
-        if 0 is not len(tied):
+        if len(tied) != 0:
             tied = tied[0].attributes()
             if "stop" != tied:
                 tied = False
@@ -104,20 +105,25 @@ def get_measure(xml, note):
 # get_measure_number 返回元素的所在小节
 def get_measure_number(xml, note):
     the_measure = get_measure(xml, note)
-    measure_attributes = the_measure.attributes()
-    return measure_attributes["number"]
+    measure_attributes = the_measure.find("attributes")
+    # return measure_attributes["number"]
+    if measure_attributes is None:
+        return None
+    else:
+        # print(measure_attributes.find("number"))
+        return measure_attributes.get("number")
 
 # get_note_pos_in_mes 获取元素在五线谱上的位置
 def get_note_pos_in_mes(xml, note):
-    staff = note.staff
+    staff = note.find("staff").text
     the_measure = get_measure(xml, note)
     the_note = the_measure.xpath(f"./note[staff={staff}]")
     pos = 0
     found = False
-    for i in len(the_note):
-        if the_note[i] == note:
+    for k, v in enumerate(the_note):
+        if v == note:
             found = True
-            pos = i
+            pos = k
             break
     if found:
         return pos
@@ -128,11 +134,11 @@ def get_note_pos_in_mes(xml, note):
 def get_previous_note_element(xml, note):
     previous_note_prov = note
     pos = get_note_pos_in_mes(xml, note)
-    staff = note.staff
+    staff = note.find("staff").text
     if None is not pos:
         if 1 == pos:
             mes = get_measure_number(xml, note)
-            if mes > 1:
+            if mes is not None and mes > 1:
                 the_measure = xml.xpath(f"//measure[@number={(mes-1)}]")
                 the_notes_prov = the_measure[0].xpath(f"/note[staff={staff}]")
                 if len(the_notes_prov) > 0:
@@ -267,19 +273,395 @@ def evaluate_difficulty(criteria, value, valueLH):
         
 
 def read_xml(path):
-    data = None
-    with open(path) as f:
-        data = f.read()
-    # print(type(data)) # str
-    return etree.XML(data)
+    return etree.parse(path)
+    # data = None
+    # with open(path) as f:
+    #     data = f.read()
+    # # print(type(data)) # str
+    # if data is not None:
+    #     return etree.XML(data)
+    # else:
+    #     return None
 
 def cal_xml(path):
+    # Meta Data
     xml = read_xml(path)
-    identification = xml.xpath("//identification")
+    if xml is None:
+        log("error: read xml failed.")
+    identification = xml.xpath("//identification") # TODO Identification is Useless.
+
+    # Calculate page length.
+    pages = xml.xpath("//print[@page-number]")
+    pages_len = 0
+    num_pages = []
+    for page in pages:
+        num_pages.append(page.attributes()['page-number'])
+    if len(num_pages) != 0:
+        pages_len = len(num_pages)
+    else:
+        pages = xml.xpath("//print[@new-page=\"yes\"]")
+        if len(pages) != 0:
+            pages_len = len(pages) + 1
+        else:
+            pages_len = 1
+
+    # Calculate measure
+    measure = xml.xpath("//measure")
+    measure_len = len(measure)
     
-    pass
+    # Calculate notes
+    notes = xml.xpath("//note[not(rest)]")
+    quantise = 4
+    note_counter = 0
+    note_counterRH = 0
+    note_counterLH = 0
+    base_duration = 10000
+    note_proportions = []
+
+    # Calculate note
+    for note in notes:
+        note_counter += 1
+        if note.find("voice").text == "1":
+            note_counterRH += 1
+        else:
+            note_counterLH += 1
+        current_note_value = 0
+        note_type = note.find("type").text
+        current_note_value = note_values[note_type]
+        
+        # time-modification 得到的节点均为空数组，样例xml无法测试
+        if len(note.xpath("time-modification")) > 0:
+            actual_note = note.xpath("time-modification/actual-notes")
+            normal_note = note.xpath("time-modification/normal-notes")
+            current_note_value *= (actual_note[0]/normal_note[0])
+            print(current_note_value)
+        #
+
+        # 统计不同类型的音符个数
+        k = 0
+        while k < len(note_proportions) and note_proportions[k][0] != current_note_value:
+            k += 1
+        if k < len(note_proportions):
+            note_proportions[k][1] += 1
+        else:
+            note_proportions.append([current_note_value, 1])
+        # print(note_proportions, k, len(note_proportions))
+        if len(note.xpath("time-modification")) == 0:
+            the_note_duration = note.find("duration").text
+            if the_note_duration != "":
+                if(int(the_note_duration) < int(base_duration)):
+                    base_duration = note.find("duration").text
+            if current_note_value > quantise:
+                quantise = current_note_value
+    
+
+    tonality_p = xml.xpath("//key/fifths")
+    tonality = tonality_p[0]
+    mode_p = xml.xpath("//key/mode")
+    mode = mode_p[0]
+    tonality_string = "" # getTonality
+    measure = xml.xpath("//measure")
+    current_part = [1, len(measure), 100]
+    parts = []
+    parts.append(current_part)
+
+
+    for k, v in enumerate(measure):
+        new_part_score = 0
+        current_measure = v
+        attr = current_measure.find("attributes")
+        if attr is not None:
+            # print(attr.find("key"))
+            if attr.find("key") is not None:
+                new_part_score += 100
+        if current_measure.find("direction") is not None:
+            if len(current_measure.xpath("./direction[@placement=\"above\" and staff=1]")) != 0:
+                if len(current_measure.xpath("./direction/direction-type/metronome")) != 0:
+                    new_part_score += 80
+        if len(current_measure.xpath("./sound[@tempo]")) != 0:
+            new_part_score += 20
+        addonmeasure = False
+        if len(current_measure.xpath("./barline[@location=\"right\"]")) != 0:
+            new_part_score += 50
+            addonmeasure = True
+        if new_part_score >= 50:
+            if addonmeasure:
+                parts[-1][1] = k+1
+                parts.append([k+2, len(measure), math.floor(new_part_score / 260 * 100)])
+            else:
+                parts[-1][1] = k
+                parts.append([k+1, len(measure), math.floor(new_part_score / 260 * 100)])
+    
+    
+    aeffacter = []
+
+    for k, v in enumerate(parts):
+        if parts[k][1] - parts[k][0] < 2:
+            parts[k - 1][1] = parts[k][1]
+            aeffacter.append(k)
+    i = len(aeffacter) - 1
+    while i >= 0:
+        # print(aeffacter[i])
+        parts[aeffacter[i]] = 1
+        i -= 1
+    tempoP = xml.xpath("//@tempo")
+    tempo = tempoP[0]
+    beatsP  = xml.xpath("//beats")
+    beats = beatsP[0]
+    beat_typeP = xml.xpath("//beat-type")
+    beat_type = beat_typeP[0]
+    quickest_value = 1
+    quickest_value_real = 1
+
+    for k, v in enumerate(note_proportions):
+        key = note_proportions[k][0]
+        value = note_proportions[k][1]
+        if key > quickest_value:
+            if value > (0.15 * note_counter):
+                quickest_value = key
+            else:
+                quickest_value_real = key
+    rapidite = int(tempo) * quickest_value * 100 / 2816
+    notesRH = xml.xpath("//note[staff=1 and not(rest)]")
+    measure = 1
+    note_num = 2
+    accord = False
+    deplacement_num = 0
+    diff_deplacements = []
+    accidental_notes = []
+    time_modifications = []
+    pitch = notesRH[0].find("pitch")
+    # print(pitch)
+    note_pitch_letter = pitch.get("step")
+    note_octave = pitch.get("octave")
+    alter = pitch.get("alter")
+
+    if notesRH[0].find("accidental") is not None:
+        accidental_notes.append([measure, 1, notesRH[0].find("accidental")])
+    if len(notesRH[0].xpath("time-modification")) != 0:
+        time_modifications.append(measure)
+    
+    num_chordRH = 0
+    num_octavesRH = 0
+    chord_base_value = 0
+    previous_note = notesRH[0]
+    previous_note_pitch = previous_note.find("pitch")
+    previous_note_pitch_letter = pitch.get("step")
+    previous_note_octave = pitch.get("octave")
+    previous_notealter = pitch.get("alter")
+
+    previous_note_pitch_value = pitch2int(previous_note_pitch_letter, previous_note_octave, previous_notealter)
+
+    for k, v in enumerate(notesRH):
+        note = v
+        note_pitch = note.find("pitch")
+        note_pitch_letter = pitch.get("step")
+        note_octave = pitch.get("ocatve")
+        alter = pitch.get("alter")
+        note_pitch_value = pitch2int(note_pitch_letter, note_octave, alter)
+
+        chord = note.find("chord")
+        if chord is not None:
+            deplacement_num += 1
+            previous_note = get_previous_note_element(xml, previous_note)
+            gap_duration = int(previous_note.find("duration").text)
+            while previous_note.find("rest") is not None:
+                previous_note = get_previous_note_element(xml, previous_note)
+                gap_duration += int(previous_note.find("duration").text)
+            while previous_note.find("chord") is not None:
+                previous_note = get_previous_note_element(xml, previous_note)
+                previous_note_pitch = previous_note.find("pitch")
+                previous_note_pitch_letter = pitch.get("step")
+                previous_note_octave = pitch.get("octave")
+                previous_notealter = pitch.get("alter")
+
+                previous_note_pitch_value = pitch2int(previous_note_pitch_value, previous_note_octave, previous_notealter)
+        current_ecart = abs(note_pitch_value -  previous_note_pitch_value)
+        
+        measure_temp = get_measure_number(xml, note)
+
+        # 
+        if measure_temp != measure:
+            note_num = 1
+            measure = measure_temp
+        if current_ecart > 12:
+            if gap_duration <= base_duration * quickest_value / beat_type * 2:
+                diff_deplacements.append([measure, note_num, current_ecart])
+        if note.find("accidental") is not None:
+            accidental_notes.append([measure, note_num, note.find("accidental")])
+        if len(note.xpath("time-modification")) != 0:
+            time_modifications.append(measure)
+        if k < len(notesRH) - 1:
+            if note.find("chord") is not None or ((note.find("chord") is None) and notesRH[k+1].find("chord") is not None):
+                accord = True
+                if note.find("chord") is None:
+                    num_chordRH += 1
+                    chord_base_value = note_pitch_value
+                if note_pitch_value == chord_base_value + 12:
+                    num_octavesRH += 1
+            else:
+                accord = False
+        note_num += 1
+    
+    if len(diff_deplacements) > 0:
+        max_ecart_droite = diff_deplacements[0]
+        for k, v in enumerate(diff_deplacements):
+            current_dep = v
+            if current_dep[2] > max_ecart_droite[2]:
+                max_ecart_droite = current_dep
+        max_intervalRH = max_ecart_droite[0]
+    else:
+        max_ecart_droite = 0
+        max_intervalRH = 0
+    
+    displacementsRH = len(diff_deplacements) / deplacement_num * 100
+
+    notesLH = xml.xpath("//note[staff=2 and not(rest)]")
+
+    measure = 1
+    note_num = 2
+    accord = False
+    deplacement_numLH = 0
+    diff_deplacementsLH = []
+    accidental_notesLH = []
+    time_modificationsLH = []
+
+    note_pitch = notesLH[0].find("pitch")
+    note_pitch_letter = note_pitch.get("step")
+    note_octave = note_pitch.get("octave")
+    alter = note_pitch.get("alter")
+
+    previous_note_octave = note_octave
+    previous_notealter = alter
+    previous_note_pitch_value = note_pitch_value
+
+    if notesLH[0].find("accidental") is not None:
+        accidental_notesLH.append([measure, 1, notesLH[0].find("accidental")])
+    if len(notesLH[0].xpath("time-modification")) != 0:
+        time_modificationsLH.append(measure)
+    num_chordLH = 0
+    num_octavesLH = 0
+    chord_base_value = 0
+    previous_note = notesLH[0]
+
+    for k, v in enumerate(notesLH):
+        note = v
+        note_pitch = note.find("pitch")
+        note_pitch_letter = note_pitch.get("step")
+        note_octave = note_pitch.get("octave")
+        alter = note_pitch.get("alter")
+        note_pitch_value = pitch2int(note_pitch_letter, note_octave, alter)
+        if note.find("chord") is None:
+            deplacement_numLH += 1
+            previous_note = get_previous_note_element(xml, note)
+            gap_duration = int(previous_note.find("duration").text)
+            while previous_note.find("rest") is not None:
+                previous_note = get_previous_note_element(xml, previous_note)
+                gap_duration += int(previous_note.find("duration").text)
+            while previous_note.find("chord") is not None:
+                if previous_note != get_previous_note_element(xml, previous_note):
+                    previous_note = get_previous_note_element(xml, previous_note)
+                else:
+                    break
+            previous_note_pitch = previous_note.find("pitch")
+            previous_note_pitch_letter = pitch.get("step")
+            previous_note_octave = pitch.get("octave")
+            previous_notealter = pitch.get("alter")
+            previous_note_pitch_value = pitch2int(previous_note_pitch_letter, previous_note_octave, previous_notealter)
+        current_ecart = abs(note_pitch_value - previous_note_pitch_value)
+        measure_temp = get_measure_number(xml, note)
+        if measure_temp != measure:
+            note_num = 1
+            measure = measure_temp
+        if current_ecart > 12:
+            if gap_duration <= base_duration * quickest_value / beat_type * 2:
+                diff_deplacementsLH.append([measure, note_num, current_ecart])
+        if note.find("accidental") is not None:
+            accidental_notesLH.append([measure, note_num, note.find("accidental")])
+
+        if len(note.xpath("time-modification")) != 0:
+            time_modificationsLH.append(measure)
+        if k < len(notesLH) - 1:
+            if note.find("chord") is not None or ((note.find("chord") is None) and notesLH[k+1].find("chord") is not None):
+                accord = True
+                if note.find("chord") is None:
+                    num_chordLH += 1
+                    chord_base_value = note_pitch_value
+                if note_pitch_value == (chord_base_value + 12):
+                    num_octavesLH += 1
+            else:
+                note_num += 1
+    
+
+    if len(diff_deplacementsLH) > 0:
+        max_ecart_gauche = diff_deplacementsLH[0]
+        for k, v in enumerate(diff_deplacementsLH):
+            current_dep = v
+            if current_dep[2] > max_ecart_droite[2]:
+                max_ecart_gauche = current_dep
+        max_intervalLH = max_ecart_gauche[0]
+    else:
+        max_ecart_gauche = 0
+        max_intervalLH = 0
+    displacementsLH = len(diff_deplacementsLH) / deplacement_numLH * 100
+
+    polyrhythm = []
+
+    for k, v in enumerate(time_modifications):
+        j = 0
+        found = False
+        while j < len(time_modificationsLH) and not found and time_modificationsLH[j] < v:
+            if time_modificationsLH[j] == v:
+                found = True
+            j += 1
+        if found:
+            if len(polyrhythm) == 0:
+                polyrhythm.append(v)
+            elif v != polyrhythm[-1]:
+                polyrhythm.append(v)
+    if deplacement_num != 0:
+        chord_ratioRH = num_chordRH / deplacement_num * 100
+    else:
+        chord_ratioRH = 0
+    if deplacement_numLH != 0:
+        chord_ratioLH = num_chordLH / deplacement_numLH * 100
+    else:
+        chord_ratioLH = 0
+    if num_chordRH != 0:
+        octaves_ratioRH = num_octavesRH / num_chordRH * 100
+    else:
+        octaves_ratioRH = 0
+    if num_chordLH != 0:
+        octaves_ratioLH = num_octavesLH / num_chordLH * 100
+    else:
+        octaves_ratioLH = 0
+
+    accidental_ratioRH = len(accidental_notes) / note_counterRH * 100
+
+    accidental_ratioLH = len(accidental_notesLH) / note_counterLH * 100
+    
+    polyrhythm_ratio = len(polyrhythm) / measure_len * 100
+
+    speed_record = tempo * quickest_value
+    speed_result = evaluate_difficulty(Criteria.Speed, rapidite, None)
+    displacement_result = evaluate_difficulty(Criteria.Displacement, displacementsRH, displacementsLH)
+    chord_result = evaluate_difficulty(Criteria.Chord, chord_ratioRH, chord_ratioLH)
+    harmony_result = evaluate_difficulty(Criteria.Harmony, accidental_ratioRH, accidental_ratioLH)
+    rhythm_result = evaluate_difficulty(Criteria.Rhythm, polyrhythm_ratio, None)
+    length_result = evaluate_difficulty(Criteria.Nbpages, measure_len, None)
+    tonality_result = evaluate_difficulty(Criteria.Tonality, abs(int(tonality.text)), None)
+
+    moyenne_result = speed_result + displacement_result + chord_result + harmony_result + rhythm_result + length_result + tonality_result
+    moyenne_result /= 7
+
+    print(moyenne_result)
+
 
 if "__main__" == __name__:
+
+    cal_xml("./demo.xml")
+
+def test():
     xml = read_xml("./demo.xml")
     identification = xml.xpath("//identification")
     measure = xml.xpath("//measure")
@@ -360,7 +742,7 @@ if "__main__" == __name__:
                 aeffacer.append(k)
         i = len(aeffacer) - 1
         while i >= 0:
-            array_split(parts, aeffacer[i], 1)
+            array_split(parts, aeffacer[i], 1) # Wrong!
         tempoP = xml.xpath("//@tempo")
         tempo = tempoP[0]
         beatsP  = xml.xpath("//beats")
@@ -425,7 +807,7 @@ if "__main__" == __name__:
                     previousNotealter = previousNote.pitch.alter
 
                     previousNotePitchValue = pitch2int(previousNotePitchLetter, previousNoteOctave, previousNotealter)
-                current_ecart = abs(note_pitch_value, previousNotePitchValue)
+                current_ecart = abs(note_pitch_value - previousNotePitchValue)
 
                 measure_temp= get_measure_number(xml, note)
 
