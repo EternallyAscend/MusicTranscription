@@ -1,9 +1,13 @@
 import enum
 import math
-from sys import meta_path
+import os
 # import lxml
 from lxml import etree
-from numpy import array_split
+from numpy import array_split, double
+
+class CalculateStatus(enum.Enum):
+    NoneXML = -1
+
 
 class Criteria(enum.Enum):
     Speed = "speed"
@@ -154,7 +158,8 @@ def get_previous_note_element(xml, note):
             mes_node = get_measure(xml, note)
             the_notes_prov = mes_node.xpath(f"./note[staff={staff}]")
             if len(the_notes_prov) > 0:
-                previous_note_prov = the_notes_prov[pos-2]
+                # print(len(the_notes_prov), pos)
+                previous_note_prov = the_notes_prov[pos-1]
     return previous_note_prov
 
 # evaluate_difficulty 评估难度
@@ -287,7 +292,8 @@ def cal_xml(path):
     # Meta Data
     xml = read_xml(path)
     if xml is None:
-        log("error: read xml failed.")
+        print("error: read xml failed.")
+        return CalculateStatus.NoneXML
     identification = xml.xpath("//identification") # TODO Identification is Useless.
 
     # Calculate page length.
@@ -295,7 +301,10 @@ def cal_xml(path):
     pages_len = 0
     num_pages = []
     for page in pages:
-        num_pages.append(page.attributes()['page-number'])
+        attr = page.find("attributes")
+        if attr is not None:
+            num_pages.append(attr.get("page-number"))
+            # num_pages.append(page.attributes()['page-number']
     if len(num_pages) != 0:
         pages_len = len(num_pages)
     else:
@@ -329,12 +338,11 @@ def cal_xml(path):
         note_type = note.find("type").text
         current_note_value = note_values[note_type]
         
-        # time-modification 得到的节点均为空数组，样例xml无法测试
         if len(note.xpath("time-modification")) > 0:
             actual_note = note.xpath("time-modification/actual-notes")
             normal_note = note.xpath("time-modification/normal-notes")
-            current_note_value *= (actual_note[0]/normal_note[0])
-            print(current_note_value)
+            current_note_value *= (int(actual_note[0].text)/int(normal_note[0].text))
+            # print(current_note_value)
         #
 
         # 统计不同类型的音符个数
@@ -347,10 +355,12 @@ def cal_xml(path):
             note_proportions.append([current_note_value, 1])
         # print(note_proportions, k, len(note_proportions))
         if len(note.xpath("time-modification")) == 0:
-            the_note_duration = note.find("duration").text
-            if the_note_duration != "":
-                if(int(the_note_duration) < int(base_duration)):
-                    base_duration = note.find("duration").text
+            duration = note.find("duration")
+            if duration is not None:
+                the_note_duration = duration.text
+                if the_note_duration != "":
+                    if(int(the_note_duration) < int(base_duration)):
+                        base_duration = duration.text
             if current_note_value > quantise:
                 quantise = current_note_value
     
@@ -421,7 +431,7 @@ def cal_xml(path):
                 quickest_value = key
             else:
                 quickest_value_real = key
-    rapidite = int(tempo) * quickest_value * 100 / 2816
+    rapidite = double(tempo) * quickest_value * 100 / 2816
     notesRH = xml.xpath("//note[staff=1 and not(rest)]")
     measure = 1
     note_num = 2
@@ -466,10 +476,18 @@ def cal_xml(path):
             previous_note = get_previous_note_element(xml, previous_note)
             gap_duration = int(previous_note.find("duration").text)
             while previous_note.find("rest") is not None:
-                previous_note = get_previous_note_element(xml, previous_note)
+                p_note = get_previous_note_element(xml, previous_note)
+                if p_note == previous_note:
+                    break
+                else:
+                    previous_note = p_note
                 gap_duration += int(previous_note.find("duration").text)
             while previous_note.find("chord") is not None:
-                previous_note = get_previous_note_element(xml, previous_note)
+                p_note = get_previous_note_element(xml, previous_note)
+                if p_note == previous_note:
+                    break
+                else:
+                    previous_note = p_note
                 previous_note_pitch = previous_note.find("pitch")
                 previous_note_pitch_letter = pitch.get("step")
                 previous_note_octave = pitch.get("octave")
@@ -514,8 +532,12 @@ def cal_xml(path):
         max_ecart_droite = 0
         max_intervalRH = 0
     
-    displacementsRH = len(diff_deplacements) / deplacement_num * 100
-
+    if deplacement_num != 0:
+        displacementsRH = len(diff_deplacements) / deplacement_num * 100
+    else:
+        # TODO 检查这种情况下如何设置displacementsRH值
+        displacementsRH = 0
+    
     notesLH = xml.xpath("//note[staff=2 and not(rest)]")
 
     measure = 1
@@ -554,13 +576,22 @@ def cal_xml(path):
         if note.find("chord") is None:
             deplacement_numLH += 1
             previous_note = get_previous_note_element(xml, note)
-            gap_duration = int(previous_note.find("duration").text)
+            duration = previous_note.find("duration")
+            if duration is not None:
+                gap_duration = int(duration.text)
+            else:
+                gap_duration = 0
             while previous_note.find("rest") is not None:
-                previous_note = get_previous_note_element(xml, previous_note)
-                gap_duration += int(previous_note.find("duration").text)
+                p_note = get_previous_note_element(xml, previous_note)
+                if p_note != previous_note:
+                    previous_note = p_note
+                    gap_duration += int(previous_note.find("duration").text)
+                else:
+                    break
             while previous_note.find("chord") is not None:
-                if previous_note != get_previous_note_element(xml, previous_note):
-                    previous_note = get_previous_note_element(xml, previous_note)
+                p_note = get_previous_note_element(xml, previous_note)
+                if p_note != previous_note:
+                    previous_note = p_note
                 else:
                     break
             previous_note_pitch = previous_note.find("pitch")
@@ -610,9 +641,13 @@ def cal_xml(path):
     for k, v in enumerate(time_modifications):
         j = 0
         found = False
-        while j < len(time_modificationsLH) and not found and time_modificationsLH[j] < v:
-            if time_modificationsLH[j] == v:
-                found = True
+        while j < len(time_modificationsLH) and not found:
+            compare = False
+            if time_modificationsLH[j] is not None and v is not None:
+                compare = time_modificationsLH[j] < v
+            if compare:
+                if time_modificationsLH[j] == v:
+                    found = True
             j += 1
         if found:
             if len(polyrhythm) == 0:
@@ -642,7 +677,7 @@ def cal_xml(path):
     
     polyrhythm_ratio = len(polyrhythm) / measure_len * 100
 
-    speed_record = tempo * quickest_value
+    speed_record = float(tempo) * quickest_value
     speed_result = evaluate_difficulty(Criteria.Speed, rapidite, None)
     displacement_result = evaluate_difficulty(Criteria.Displacement, displacementsRH, displacementsLH)
     chord_result = evaluate_difficulty(Criteria.Chord, chord_ratioRH, chord_ratioLH)
@@ -657,9 +692,22 @@ def cal_xml(path):
     print(moyenne_result)
 
 
+def cal_folder(folder):
+    file_list = []  # 存储xml文件路径的列表
+
+    for file_name in os.listdir(folder):
+        if file_name.endswith(".xml"):
+            file_path = os.path.join(folder, file_name)
+            file_list.append(file_path)
+            print(file_name)
+            cal_xml(file_path)
+    pass
+
 if "__main__" == __name__:
 
-    cal_xml("./demo.xml")
+    # cal_xml("./demo.xml")
+    # cal_folder("./demos")
+    cal_folder("./failed")
 
 def test():
     xml = read_xml("./demo.xml")
